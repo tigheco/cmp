@@ -23,11 +23,11 @@ figsDirectory = "figs/"
 # Parse Arguments -------------------------------------------------------------
 # Defaults
 filename = "discard"                        # Discards data
-sampleRate = 20                             # Sample interval [ms]
-loopAmount = "infinite"                     # Infinite loop
+sampleRate = 50                             # Sample interval [ms]
+loopAmount = 30/sampleRate/1E-3             # Infinite loop
 loopMessage = " Press Ctrl+C to stop."
 
-# Argument handlers
+# Argument handlerss
 def set_filename(arg):
     try:
         filename = str(arg)
@@ -38,9 +38,9 @@ def set_filename(arg):
 
     # Check if file already exists to prevent overwriting data
     if path.exists(dataDirectory+filename+".csv"):
-        response = str(input("File already exists with input name. Continue? Y/N: "))
+        response = str(input("File already exists with input name. Continue? Y/N: ").lower())
 
-        if response is not ("Y" and "y"):
+        if response != "y":
             sys.exit()
 
     return filename
@@ -88,8 +88,10 @@ print("Opened a LabJack with Device type: %i, Connection type: %i,\n"
 #   Range: +/-10.0 V (10.0)
 #   Resolution index = Default (0)
 #   Settling, in microseconds = Auto (0)
-names = ["AIN0_NEGATIVE_CH", "AIN0_RANGE", "AIN0_RESOLUTION_INDEX", "AIN0_SETTLING_US"]
-aValues = [199, 10.0, 0, 0]
+names = ["AIN0_NEGATIVE_CH", "AIN0_RANGE", "AIN0_RESOLUTION_INDEX", "AIN0_SETTLING_US",
+         "AIN2_NEGATIVE_CH", "AIN2_RANGE", "AIN2_RESOLUTION_INDEX", "AIN2_SETTLING_US"]
+aValues = [199, 10.0, 8, 0,
+           199, 10.0, 10, 0]
 numFrames = len(names)
 ljm.eWriteNames(handle, numFrames, names, aValues)
 
@@ -98,38 +100,45 @@ for i in range(numFrames):
     print("    %s : %f" % (names[i], aValues[i]))
 
 # Read AIN0 from the LabJack with eReadNames in a loop.
-numFrames = 1
-names = ["AIN0"]
+names = ["AIN0", "AIN2"]
+numFrames = len(names)
 
 # Record Data -----------------------------------------------------------------
-print("\nStarting %s read loops.%s\n" % (str(loopAmount), loopMessage))
+print("\nStarting %.0s read loops.%s\n" % (str(loopAmount), loopMessage))
 
-data = np.zeros((1, 3+numFrames), dtype=np.float32)     # Data array
+# columns: time, iteration, voltage, pressure, voltage flow rate
+data = np.zeros((1, 6), dtype=np.float32)               # Data array
 i = 0                                                   # Iteration counter
 
 tStart = time.time()                                    # Start time stamp
+tLast = 0                                               # Last sampling time
 while True:
     try:
-        # Read data from Labjack
+        # Check current time
         t = time.time() - tStart
-        raw = ljm.eReadNames(handle, numFrames, names)
 
-        # Convert voltage to pressure
-        results = np.array(raw)
-        pressures = results / 5.0 * 3.2
+        # At sampling rate...
+        if (t - tLast) > sampleRate*1E-3:
+            tLast = t
+            # Read data from Labjack
+            results = np.array(ljm.eReadNames(handle, numFrames, names))
 
-        # Save data to array
-        data = np.append(data, [[t, i, results[0], pressures[0]]], axis=0)
+            # Convert voltages to measurements
+            pressure = results[0]/5.0*3.2                   # [psi]
+            flowRate = results[1]/5.0*500                   # [SLPM]
 
-        # Print results to terminal
-        print("t : %f s, AIN0 : %f V, P : %f psi"
-        % (i, results[0], pressures[0]), end='\n')
+            # Save data to array
+            data = np.append(data, [[t, i, results[0], pressure, results[1], flowRate]], axis=0)
 
-        # Increment iteration counter
-        i = i + 1
-        if loopAmount is not "infinite":
-            if i >= loopAmount:
-                break
+            # Print results to terminal
+            print("t : %6.2f s, P : %2.3f psi, Q : %3.1f SLPM"
+            % (t, pressure, flowRate), end='\n')
+
+            # Increment iteration counter
+            i = i + 1
+            if loopAmount is not "infinite":
+                if i >= loopAmount:
+                    break
 
     except KeyboardInterrupt:
         break
@@ -146,22 +155,34 @@ ljm.close(handle)
 # Save data
 if filename is not "discard":
     print("Writing data to {}.csv".format(filename))
-    dataLabels = "Time, " + ", ".join(names) + ", Pressure"
-    dataUnits = "[s], " + ", ".join(numFrames*["[V]"]) + ", ".join(numFrames*["[psi]"])
+    dataLabels = "Time, AIN0, Pressure, AIN2, Flow Rate"
+    dataUnits = "[s], [V], [psi], [V], [SLPM]"
     header = '\n'.join([dataLabels, dataUnits])
-    np.savetxt(filename+".csv", data[1:, :], delimiter=',', header=header, comments='')
+    np.savetxt(dataDirectory+filename+".csv", data[1:, :], delimiter=',', header=header, comments='')
 
 # Plot ------------------------------------------------------------------------
-fig = plt.figure()
-plt.plot(data[1:,1], data[1:,3])
-plt.legend(names[::-1], loc='upper right')
-plt.xlabel("Time [s]")
-plt.ylabel("Pressure [psi]")
-if filename is not "discard":
-    plt.title(filename)
-    fig.savefig(filename + ".png")
+fig, ax1 = plt.subplots()
+ax1.grid(True)
+ax2 = ax1.twinx()
 
+ax1.plot(data[1:,0], data[1:,3], 'g-')        # pressure
+ax2.plot(data[1:,0], data[1:,5], 'b-')        # flow rate
+
+ax1.set_xlabel("Time [s]")
+ax1.set_ylabel("Pressure [psi]", color='g')
+ax2.set_ylabel("Flow Rate [SLPM]", color='b')
+
+plt.tight_layout()
 plt.show()
+
+if filename is not "discard":
+    print("Saving plot to {}.png".format(filename))
+    plt.title(filename)
+    fig.savefig(figsDirectory+filename+"-zoom.png")
+
+    ax1.set_ylim(-2.5, 0)
+    ax2.set_ylim(80, 90)
+    fig.savefig(figsDirectory+filename+".png")
 
 
 """
