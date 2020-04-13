@@ -161,16 +161,20 @@ if filename is not "discard":
     np.savetxt(dataDirectory+filename+".csv", data[1:, :], delimiter=',', header=header, comments='')
 
 # Plot ------------------------------------------------------------------------
-fig, ax1 = plt.subplots()
-ax1.grid(True)
-ax2 = ax1.twinx()
+# Set up plots
+fig, axs = plt.subplots(2)
+axs[0].grid(True)
+axs[1].grid(True)
 
-ax1.plot(data[1:,0], data[1:,3], 'g-')        # pressure
-ax2.plot(data[1:,0], data[1:,5], 'b-')        # flow rate
+# Plot data
+axs[0].plot(data[1:,0], data[1:,3], 'g-')        # pressure
+axs[1].plot(data[1:,0], data[1:,5], 'b-')        # flow rate
 
-ax1.set_xlabel("Time [s]")
-ax1.set_ylabel("Pressure [psi]", color='g')
-ax2.set_ylabel("Flow Rate [SLPM]", color='b')
+# Label plots
+axs[0].set_title(filename)
+axs[1].set_xlabel("Time [s]")
+axs[0].set_ylabel("Pressure [psi]")
+axs[1].set_ylabel("Flow Rate [SLPM]")
 
 plt.tight_layout()
 plt.show()
@@ -178,12 +182,7 @@ plt.show()
 if filename is not "discard":
     print("Saving plot to {}.png".format(filename))
     plt.title(filename)
-    fig.savefig(figsDirectory+filename+"-zoom.png")
-
-    ax1.set_ylim(-2.5, 0)
-    ax2.set_ylim(80, 90)
     fig.savefig(figsDirectory+filename+".png")
-
 
 """
 References:
@@ -191,6 +190,4 @@ References:
     author: Tighe Costa JTCosta@honeybeerobotics.com
 2. LabJack Python_LJM_2019_04_03 Example dual_ain_loop.py
     https://labjack.com/support/software/examples/ljm/python
-3. P559 MMX Test Code read_photo_transistor.py
-    author: Sherman Lam SJLam@honeybeerobotics.com
 """
